@@ -22,7 +22,7 @@ public class KeywordController {
     public Mono<ResponseEntity<KeywordAnalyzeResponse>> analyzeKeyword(
             @RequestBody @Valid KeywordAnalyzeRequest request
     ) {
-        return keywordService.analyzeKeyword(request.keyword())
+        return keywordService.analyzeKeyword(request)
                 .map(ResponseEntity::ok)
                 .defaultIfEmpty(ResponseEntity.notFound().build());
     }

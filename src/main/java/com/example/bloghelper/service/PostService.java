@@ -1,113 +1,142 @@
 package com.example.bloghelper.service;
 
-import com.example.bloghelper.dto.PostCreateRequest;
+import com.example.bloghelper.dto.KeywordAnalyzeRequest;
+import com.example.bloghelper.dto.KeywordAnalyzeResponse;
 import com.example.bloghelper.dto.PostResponse;
-import com.example.bloghelper.dto.PostUpdateRequest;
 import com.example.bloghelper.entity.Post;
+import com.example.bloghelper.exception.PostGenerationException;
 import com.example.bloghelper.repository.PostRepository;
-import jakarta.persistence.EntityNotFoundException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Mono;
 
-import java.util.List;
+import java.time.Duration;
 
 /**
- * PostService 클래스는 게시글(Post) 관련 비즈니스 로직을 담당합니다.
- * 컨트롤러(Controller)로부터 요청을 받아 저장소(Repository)를 통해 엔티티에 접근하고,
- * DTO를 통해 결과를 반환합니다.
+ * PostService는 키워드 분석을 바탕으로 ChatGPT를 통해 포스트를 생성하고
+ * 해당 결과를 데이터베이스에 저장한 뒤, 사용자에게 응답하는 역할을 합니다.
  */
 @Service
-@Transactional // 클래스 내 메서드들이 기본적으로 트랜잭션 범위 내에서 실행되도록 합니다.
-@RequiredArgsConstructor // Lombok 어노테이션으로, final 필드에 대한 생성자를 자동으로 생성합니다.
+@Transactional // 트랜잭션 범위 내에서 데이터베이스 작업을 처리
+@RequiredArgsConstructor // Lombok 어노테이션: final 필드에 대한 생성자를 자동 생성
+@Slf4j // Lombok 어노테이션: Logger 객체를 자동으로 생성
 public class PostService {
-    // 게시글에 대한 CRUD 작업을 담당하는 Repository
-    private final PostRepository postRepository;
+    private final ChatGptService chatGptService; // ChatGPT API 연동 서비스
+    private final KeywordService keywordService; // 키워드 분석 서비스
+    private final PostRepository postRepository; // Post 엔티티 데이터베이스 액세스
+    private final ObjectMapper objectMapper;     // JSON 변환을 위한 ObjectMapper
 
     /**
-     * 게시글을 생성하는 메서드입니다.
+     * 사용자가 전달한 키워드 기반으로:
+     * 1. KeywordService를 통해 키워드 분석 수행
+     * 2. ChatGPT를 통해 분석 결과를 바탕으로 초안 상태의 포스트 생성
+     * 3. 데이터베이스에 생성된 포스트를 저장
+     * 4. PostResponse DTO 형태로 응답 반환
      *
-     * @param request PostCreateRequest DTO로, 클라이언트가 전달한 제목, 내용 등 게시글 정보를 포함하고 있습니다.
-     * @return 생성된 게시글을 담은 PostResponse DTO
+     * @param request 포스트 생성 요청 DTO (키워드 포함)
+     * @return 생성된 포스트 정보(PostResponse)를 Mono로 반환
      */
-    public PostResponse createPost(PostCreateRequest request) {
-        // 요청 DTO로부터 제목과 내용을 꺼내 Builder 패턴을 통해 Post 엔티티를 생성합니다.
-        Post post = Post.builder()
-                .title(request.getTitle())
-                .content(request.getContent())
-                .build();
-
-        // 생성한 Post 엔티티를 데이터베이스에 저장합니다.
-        Post savedPost = postRepository.save(post);
-
-        // 저장된 엔티티를 바탕으로 응답 DTO를 생성하여 반환합니다.
-        return new PostResponse(savedPost);
+    public Mono<PostResponse> createPostDraft(KeywordAnalyzeRequest request) {
+        return keywordService.analyzeKeyword(request)
+                .timeout(Duration.ofMinutes(2)) // 2분간 타임아웃 설정
+                // 키워드 분석 결과를 바탕으로 포스트 콘텐츠 생성 요청
+                .flatMap(keywordAnalysis -> generatePost(keywordAnalysis, request.tone())
+                        // ChatGPT 응답을 Post 엔티티로 변환 및 저장
+                        .map(postContent -> createAndSavePost(postContent, keywordAnalysis)))
+                // 저장된 Post 엔티티를 PostResponse DTO로 변환
+                .map(PostResponse::from);
     }
 
     /**
-     * 특정 게시글을 조회하는 메서드입니다.
+     * 분석된 키워드를 바탕으로 ChatGPT에 포스트 생성 요청을 보내고,
+     * 그 결과를 PostGenerationResponse(타이틀, 내용) 형태로 반환합니다.
      *
-     * @param id 조회할 게시글의 식별자(ID)
-     * @return 조회한 게시글을 담은 PostResponse DTO
-     * @throws EntityNotFoundException 해당 ID로 게시글을 찾을 수 없을 경우 예외 발생
+     * @param keywordAnalysis 키워드 분석 결과 DTO
+     * @param tone
+     * @return Mono<PostGenerationResponse> 포스트 생성 결과(타이틀, 내용)
      */
-    @Transactional(readOnly = true) // 조회 전용이므로 readOnly = true를 통해 성능 최적화 및 안전성 향상
-    public PostResponse getPost(Long id) {
-        // ID를 통해 게시글을 조회하고, 없을 경우 예외를 발생시킵니다.
-        Post post = postRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Post not found with id: " + id));
-        // 조회한 엔티티를 응답 DTO로 변환하여 반환합니다.
-        return new PostResponse(post);
+    private Mono<PostGenerationResponse> generatePost(KeywordAnalyzeResponse keywordAnalysis, String tone) {
+        return chatGptService.getCompletion(createPostPrompt(keywordAnalysis, tone))
+                .map(response -> {
+                    try {
+                        log.info(response);
+                        // ChatGPT의 JSON 응답을 PostGenerationResponse로 파싱
+                        return objectMapper.readValue(response, PostGenerationResponse.class);
+                    } catch (JsonProcessingException e) {
+                        throw new PostGenerationException("포스트 생성 결과 파싱 실패", e);
+                    }
+                });
     }
 
     /**
-     * 모든 게시글을 조회하는 메서드입니다. 최신 순으로 정렬된 리스트를 반환합니다.
+     * 키워드 분석 결과(relatedKeywords, originalKeyword)를 바탕으로
+     * ChatGPT에 포스트 작성을 요청할 프롬프트를 생성합니다.
      *
-     * @return 모든 게시글을 PostResponse DTO의 리스트로 반환
+     * @param keywordAnalysis 키워드 분석 결과
+     * @param tone
+     * @return ChatGPT에 전달할 문자열 프롬프트
      */
-    @Transactional(readOnly = true)
-    public List<PostResponse> getAllPosts() {
-        // 저장소에서 최신순으로 정렬된 모든 게시글을 가져와 PostResponse DTO로 변환합니다.
-        return postRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(PostResponse::new)
-                .toList();
+    private String createPostPrompt(KeywordAnalyzeResponse keywordAnalysis, String tone) {
+        return """
+                다음 키워드와 관련된 블로그 포스트를 [%s]어투로 작성해주세요:
+                주제 키워드: %s
+                관련 키워드: %s
+
+                다음 형식의 순수한 JSON으로 응답해주세요(마크다운 형식 X):
+                {
+                    "title": "블로그 포스트 제목",
+                    "content": "블로그 포스트 내용 (마크다운 형식)"
+                }
+
+                작성 시 다음 사항을 고려해주세요:
+                1. SEO를 고려한 제목 작성
+                2. 명확한 문단 구분
+                3. 읽기 쉬운 설명
+                4. 전문적이고 신뢰할 수 있는 톤
+                5. 관련 키워드를 자연스럽게 포함
+                6. "content" 필드의 문자열에서 줄바꿈은 반드시 '\\n'로 표시해주세요.
+                """.formatted(
+                tone,
+                keywordAnalysis.originalKeyword(),
+                String.join(", ", keywordAnalysis.relatedKeywords())
+        );
     }
 
     /**
-     * 게시글을 수정하는 메서드입니다.
+     * ChatGPT로부터 생성된 포스트 타이틀과 콘텐츠, 키워드 분석 결과를 바탕으로
+     * 초안 상태의 Post 엔티티를 생성하고 데이터베이스에 저장합니다.
      *
-     * @param id      수정할 게시글의 식별자(ID)
-     * @param request 수정할 새로운 제목과 내용을 담은 PostUpdateRequest DTO
-     * @return 수정된 게시글 정보를 담은 PostResponse DTO
-     * @throws EntityNotFoundException 해당 ID로 게시글을 찾을 수 없을 경우 예외 발생
+     * @param generatedContent ChatGPT가 생성한 포스트 내용(타이틀, 내용)
+     * @param keywordAnalysis  키워드 분석 결과(원본 키워드, 연관 키워드 등)
+     * @return 저장된 Post 엔티티 객체
+     * @throws PostGenerationException JSON 직렬화 실패 시 발생
      */
-    public PostResponse updatePost(Long id, PostUpdateRequest request) {
-        // ID를 통해 기존 게시글을 조회하고 없으면 예외를 발생시킵니다.
-        Post post = postRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Post not found with id: " + id));
-
-        // Post 엔티티의 update 메서드를 통해 제목과 내용을 변경합니다.
-        post.update(request.getTitle(), request.getContent());
-
-        // 변경된 내용을 저장소에 반영하고, 저장된 엔티티를 기반으로 응답 DTO를 만들어 반환합니다.
-        Post updatedPost = postRepository.save(post);
-        return new PostResponse(updatedPost);
-    }
-
-    /**
-     * 게시글을 삭제하는 메서드입니다.
-     *
-     * @param id 삭제할 게시글의 식별자(ID)
-     * @throws EntityNotFoundException 해당 ID로 게시글을 찾을 수 없을 경우 예외 발생
-     */
-    public void deletePost(Long id) {
-        // 게시글 존재 여부를 확인한 뒤, 없으면 예외 발생
-        if (!postRepository.existsById(id)) {
-            throw new EntityNotFoundException("Post not found with id: " + id);
+    private Post createAndSavePost(PostGenerationResponse generatedContent,
+                                   KeywordAnalyzeResponse keywordAnalysis) {
+        try {
+            // relatedKeywords를 JSON 문자열로 변환 후, 초안 상태의 Post 생성
+            var post = Post.createDraft(
+                    generatedContent.title(),
+                    generatedContent.content(),
+                    keywordAnalysis.originalKeyword(),
+                    objectMapper.writeValueAsString(keywordAnalysis.relatedKeywords())
+            );
+            return postRepository.save(post);
+        } catch (JsonProcessingException e) {
+            throw new PostGenerationException("포스트 저장 실패", e);
         }
-        // 존재한다면 해당 게시글을 삭제합니다.
-        postRepository.deleteById(id);
     }
+}
 
-
+/**
+ * PostGenerationResponse 레코드는 ChatGPT가 생성한 포스트의 제목과 내용을 담습니다.
+ *
+ * @param title   생성된 블로그 포스트 제목
+ * @param content 생성된 블로그 포스트 내용 (마크다운 형식)
+ */
+record PostGenerationResponse(String title, String content) {
 }

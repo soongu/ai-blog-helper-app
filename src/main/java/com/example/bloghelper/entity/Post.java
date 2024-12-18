@@ -20,7 +20,6 @@ public class Post {
     // 데이터베이스가 키 값을 자동으로 생성하는 전략을 사용합니다. (예: MySQL의 AUTO_INCREMENT)
     private Long id;
 
-
     @Column(nullable = false)
     // title 컬럼은 null값을 허용하지 않도록 설정합니다.
     private String title;
@@ -29,11 +28,32 @@ public class Post {
     // content 컬럼은 null을 허용하지 않으며, TEXT 타입을 사용하도록 명시합니다.
     private String content;
 
+    @Enumerated(EnumType.STRING)
+    // EnumType.STRING을 사용하면 enum의 이름(예: DRAFT, PUBLISHED)을 그대로 문자열로 데이터베이스에 저장합니다.
+    private PostStatus status = PostStatus.DRAFT;
+    // 게시글의 상태를 나타내는 필드입니다. 기본값은 초안(DRAFT) 상태입니다.
+
+    @Column(nullable = false)
+    // 원본 키워드를 저장하는 컬럼이며 null 값을 허용하지 않습니다.
+    private String keyword;  // 원본 키워드
+
+    @Column(columnDefinition = "TEXT")
+    // 연관 키워드를 JSON 형식으로 저장하는 컬럼입니다. TEXT 타입으로 길이 제한 없이 긴 문자열을 보관할 수 있습니다.
+    private String relatedKeywords;  // 연관 키워드 (JSON)
+
     // 생성 시각을 저장할 필드입니다.
     private LocalDateTime createdAt;
 
     // 수정 시각을 저장할 필드입니다.
     private LocalDateTime updatedAt;
+
+    /**
+     * 게시글 상태를 나타내는 enum 타입입니다.
+     * DRAFT는 초안 상태, PUBLISHED는 게시완료 상태를 의미합니다.
+     */
+    public enum PostStatus {
+        DRAFT, PUBLISHED
+    }
 
     /**
      * 엔티티가 처음 persist(저장)될 때 자동으로 실행되는 메서드입니다.
@@ -82,5 +102,33 @@ public class Post {
     public void update(String title, String content) {
         this.title = title;
         this.content = content;
+    }
+
+    /**
+     * 초안 상태의 게시글(Post)을 생성하는 정적 팩토리 메서드입니다.
+     * 제목, 내용, 키워드, 연관 키워드를 전달받아 Post 객체를 생성합니다.
+     * 이 때 상태는 기본적으로 DRAFT입니다.
+     *
+     * @param title           게시글 제목
+     * @param content         게시글 내용
+     * @param keyword         원본 키워드
+     * @param relatedKeywords 연관 키워드(JSON 형식 문자열)
+     * @return 초안 상태의 Post 객체
+     */
+    public static Post createDraft(String title, String content, String keyword, String relatedKeywords) {
+        var post = new Post();
+        post.title = title;
+        post.content = content;
+        post.keyword = keyword;
+        post.relatedKeywords = relatedKeywords;
+        return post;
+    }
+
+    /**
+     * 게시글 상태를 게시완료(PUBLISHED) 상태로 변경하는 메서드입니다.
+     * 초안 상태였던 게시글을 게시완료 처리할 때 사용합니다.
+     */
+    public void publish() {
+        this.status = PostStatus.PUBLISHED;
     }
 }

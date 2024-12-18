@@ -1,5 +1,6 @@
 package com.example.bloghelper.service;
 
+import com.example.bloghelper.dto.KeywordAnalyzeRequest;
 import com.example.bloghelper.dto.KeywordAnalyzeResponse;
 import com.example.bloghelper.entity.Keyword;
 import com.example.bloghelper.exception.KeywordAnalysisException;
@@ -31,13 +32,13 @@ public class KeywordService {
      * 사용자가 입력한 키워드를 바탕으로 ChatGPT에 요청하여 관련 키워드와 추천 주제를 분석합니다.
      * 반환값은 비동기 처리(Mono)로, KeywordAnalyzeResponse DTO로 분석 결과를 반환합니다.
      *
-     * @param keyword 사용자가 입력한 키워드
+     * @param request 사용자가 입력한 키워드와 말투
      * @return 분석 결과를 포함한 KeywordAnalyzeResponse를 Mono로 래핑한 객체
      */
-    public Mono<KeywordAnalyzeResponse> analyzeKeyword(String keyword) {
-        return chatGptService.getCompletion(createPrompt(keyword)) // ChatGPT에 프롬프트를 보내고 응답 수신
+    public Mono<KeywordAnalyzeResponse> analyzeKeyword(KeywordAnalyzeRequest request) {
+        return chatGptService.getCompletion(createPrompt(request)) // ChatGPT에 프롬프트를 보내고 응답 수신
                 .map(this::parseGptResponse) // 수신한 문자열 응답을 KeywordAnalysis 객체로 파싱
-                .map(analysis -> saveKeywordAnalysis(keyword, analysis)) // 파싱한 결과를 데이터베이스에 저장하고 Keyword 엔티티 반환
+                .map(analysis -> saveKeywordAnalysis(request.keyword(), analysis)) // 파싱한 결과를 데이터베이스에 저장하고 Keyword 엔티티 반환
                 .map(KeywordAnalyzeResponse::from); // Keyword 엔티티를 KeywordAnalyzeResponse DTO로 변환
     }
 
@@ -45,20 +46,20 @@ public class KeywordService {
      * ChatGPT에 전달할 프롬프트를 생성하는 메서드입니다.
      * 키워드와 관련된 블로그 주제를 JSON 형식으로 달라고 요청합니다.
      *
-     * @param keyword 요청할 키워드
+     * @param request 요청할 키워드
      * @return ChatGPT에 전달할 문자열 프롬프트
      */
-    private String createPrompt(String keyword) {
+    private String createPrompt(KeywordAnalyzeRequest request) {
         return """
                 다음 키워드와 관련된 블로그 주제를 추천해주세요:
                 키워드: %s
 
-                다음 형식의 JSON으로 응답해주세요:
+                다음 형식의 순수한 JSON으로 응답해주세요(markdown과 같은형식 X):
                 {
                     "relatedKeywords": ["연관 키워드1", "연관 키워드2", ...],
                     "suggestedTopics": ["추천 주제1", "추천 주제2", ...]
                 }
-                """.formatted(keyword);
+                """.formatted(request.keyword());
     }
 
     /**
@@ -70,6 +71,7 @@ public class KeywordService {
      */
     private KeywordAnalysis parseGptResponse(String response) {
         try {
+            log.info("ChatGPT 응답: {}", response);
             return objectMapper.readValue(response, KeywordAnalysis.class);
         } catch (JsonProcessingException e) {
             throw new KeywordAnalysisException("ChatGPT 응답 파싱 실패", e);
