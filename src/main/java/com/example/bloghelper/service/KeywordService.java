@@ -4,7 +4,9 @@ import com.example.bloghelper.dto.KeywordAnalyzeResponse;
 import com.example.bloghelper.entity.Keyword;
 import com.example.bloghelper.exception.KeywordAnalysisException;
 import com.example.bloghelper.repository.KeywordRepository;
+import com.example.bloghelper.util.JsonConverter;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +27,6 @@ import java.util.List;
 public class KeywordService {
     private final ChatGptService chatGptService; // ChatGPT API 호출을 담당하는 서비스
     private final KeywordRepository keywordRepository; // Keyword 엔티티 저장소
-    private final ObjectMapper objectMapper; // JSON 직렬화/역직렬화를 담당하는 Jackson ObjectMapper
 
     /**
      * 사용자가 입력한 키워드를 바탕으로 ChatGPT에 요청하여 관련 키워드와 추천 주제를 분석합니다.
@@ -53,7 +54,7 @@ public class KeywordService {
                 다음 키워드와 관련된 블로그 주제를 추천해주세요:
                 키워드: %s
 
-                다음 형식의 JSON으로 응답해주세요:
+                다음 형식의 순수한 JSON으로 응답해주세요(다른 형식 불가 ex: md, xml 등):
                 {
                     "relatedKeywords": ["연관 키워드1", "연관 키워드2", ...],
                     "suggestedTopics": ["추천 주제1", "추천 주제2", ...]
@@ -66,13 +67,13 @@ public class KeywordService {
      *
      * @param response ChatGPT 응답 JSON 문자열
      * @return KeywordAnalysis(연관 키워드와 추천 주제 리스트를 담은 객체)
-     * @throws KeywordAnalysisException 파싱 실패 시 예외 발생
      */
     private KeywordAnalysis parseGptResponse(String response) {
         try {
-            return objectMapper.readValue(response, KeywordAnalysis.class);
-        } catch (JsonProcessingException e) {
-            throw new KeywordAnalysisException("ChatGPT 응답 파싱 실패", e);
+            return JsonConverter.fromJson(response, new TypeReference<KeywordAnalysis>() {});
+        } catch (KeywordAnalysisException e) {
+            log.error("ChatGPT 응답 파싱 실패: {}", response, e);
+            throw new KeywordAnalysisException("ChatGPT응답이 유효하지 않습니다.", e);
         }
     }
 
@@ -83,20 +84,15 @@ public class KeywordService {
      * @param originalKeyword 사용자 입력 키워드
      * @param analysis        파싱한 분석 결과
      * @return 저장된 Keyword 엔티티 객체
-     * @throws KeywordAnalysisException 직렬화 실패 또는 저장 실패 시 예외 발생
      */
     private Keyword saveKeywordAnalysis(String originalKeyword, KeywordAnalysis analysis) {
-        try {
-            // Keyword 엔티티 생성 및 JSON 직렬화 후 저장
-            Keyword keyword = Keyword.createFromAnalysis(
-                    originalKeyword,
-                    objectMapper.writeValueAsString(analysis.relatedKeywords()),
-                    objectMapper.writeValueAsString(analysis.suggestedTopics())
-            );
-            return keywordRepository.save(keyword);
-        } catch (JsonProcessingException e) {
-            throw new KeywordAnalysisException("분석 결과 저장 실패", e);
-        }
+        // Keyword 엔티티 생성 및 JSON 직렬화 후 저장
+        Keyword keyword = Keyword.createFromAnalysis(
+                originalKeyword,
+                JsonConverter.toJson(analysis.relatedKeywords()),
+                JsonConverter.toJson(analysis.suggestedTopics())
+        );
+        return keywordRepository.save(keyword);
     }
 }
 
