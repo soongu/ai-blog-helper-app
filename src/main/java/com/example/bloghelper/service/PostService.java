@@ -1,12 +1,13 @@
 package com.example.bloghelper.service;
 
-import com.example.bloghelper.dto.KeywordAnalyzeRequest;
 import com.example.bloghelper.dto.KeywordAnalyzeResponse;
+import com.example.bloghelper.dto.PostCreateRequest;
 import com.example.bloghelper.dto.PostResponse;
 import com.example.bloghelper.entity.Post;
 import com.example.bloghelper.exception.PostGenerationException;
 import com.example.bloghelper.repository.PostRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import com.example.bloghelper.util.JsonConverter;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,11 +41,11 @@ public class PostService {
      * @param request 포스트 생성 요청 DTO (키워드 포함)
      * @return 생성된 포스트 정보(PostResponse)를 Mono로 반환
      */
-    public Mono<PostResponse> createPostDraft(KeywordAnalyzeRequest request) {
-        return keywordService.analyzeKeyword(request)
+    public Mono<PostResponse> createPostDraft(PostCreateRequest request) {
+        return keywordService.analyzeKeyword(request.keyword())
                 .timeout(Duration.ofMinutes(2)) // 2분간 타임아웃 설정
                 // 키워드 분석 결과를 바탕으로 포스트 콘텐츠 생성 요청
-                .flatMap(keywordAnalysis -> generatePost(keywordAnalysis, request.tone())
+                .flatMap(keywordAnalysis -> generatePost(keywordAnalysis)
                         // ChatGPT 응답을 Post 엔티티로 변환 및 저장
                         .map(postContent -> createAndSavePost(postContent, keywordAnalysis)))
                 // 저장된 Post 엔티티를 PostResponse DTO로 변환
@@ -56,19 +57,15 @@ public class PostService {
      * 그 결과를 PostGenerationResponse(타이틀, 내용) 형태로 반환합니다.
      *
      * @param keywordAnalysis 키워드 분석 결과 DTO
-     * @param tone
      * @return Mono<PostGenerationResponse> 포스트 생성 결과(타이틀, 내용)
      */
-    private Mono<PostGenerationResponse> generatePost(KeywordAnalyzeResponse keywordAnalysis, String tone) {
-        return chatGptService.getCompletion(createPostPrompt(keywordAnalysis, tone))
+    private Mono<PostGenerationResponse> generatePost(KeywordAnalyzeResponse keywordAnalysis) {
+        return chatGptService.getCompletion(createPostPrompt(keywordAnalysis))
                 .map(response -> {
-                    try {
-                        log.info(response);
-                        // ChatGPT의 JSON 응답을 PostGenerationResponse로 파싱
-                        return objectMapper.readValue(response, PostGenerationResponse.class);
-                    } catch (JsonProcessingException e) {
-                        throw new PostGenerationException("포스트 생성 결과 파싱 실패", e);
-                    }
+                    log.info(response);
+                    // ChatGPT의 JSON 응답을 PostGenerationResponse로 파싱
+                    return JsonConverter.fromJson(response, new TypeReference<PostGenerationResponse>() {
+                    });
                 });
     }
 
@@ -77,12 +74,11 @@ public class PostService {
      * ChatGPT에 포스트 작성을 요청할 프롬프트를 생성합니다.
      *
      * @param keywordAnalysis 키워드 분석 결과
-     * @param tone
      * @return ChatGPT에 전달할 문자열 프롬프트
      */
-    private String createPostPrompt(KeywordAnalyzeResponse keywordAnalysis, String tone) {
+    private String createPostPrompt(KeywordAnalyzeResponse keywordAnalysis) {
         return """
-                다음 키워드와 관련된 블로그 포스트를 [%s]어투로 작성해주세요:
+                다음 키워드와 관련된 블로그 포스트를 작성해주세요:
                 주제 키워드: %s
                 관련 키워드: %s
 
@@ -100,7 +96,6 @@ public class PostService {
                 5. 관련 키워드를 자연스럽게 포함
                 6. "content" 필드의 문자열에서 줄바꿈은 반드시 '\\n'로 표시해주세요.
                 """.formatted(
-                tone,
                 keywordAnalysis.originalKeyword(),
                 String.join(", ", keywordAnalysis.relatedKeywords())
         );
@@ -117,18 +112,14 @@ public class PostService {
      */
     private Post createAndSavePost(PostGenerationResponse generatedContent,
                                    KeywordAnalyzeResponse keywordAnalysis) {
-        try {
-            // relatedKeywords를 JSON 문자열로 변환 후, 초안 상태의 Post 생성
-            var post = Post.createDraft(
-                    generatedContent.title(),
-                    generatedContent.content(),
-                    keywordAnalysis.originalKeyword(),
-                    objectMapper.writeValueAsString(keywordAnalysis.relatedKeywords())
-            );
-            return postRepository.save(post);
-        } catch (JsonProcessingException e) {
-            throw new PostGenerationException("포스트 저장 실패", e);
-        }
+        // relatedKeywords를 JSON 문자열로 변환 후, 초안 상태의 Post 생성
+        var post = Post.createDraft(
+                generatedContent.title(),
+                generatedContent.content(),
+                keywordAnalysis.originalKeyword(),
+                JsonConverter.toJson(keywordAnalysis.relatedKeywords())
+        );
+        return postRepository.save(post);
     }
 }
 

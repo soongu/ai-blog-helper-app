@@ -2,6 +2,7 @@ package com.example.bloghelper.controller;
 
 import com.example.bloghelper.dto.KeywordAnalyzeRequest;
 import com.example.bloghelper.dto.KeywordAnalyzeResponse;
+import com.example.bloghelper.dto.PostCreateRequest;
 import com.example.bloghelper.service.KeywordService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -20,9 +21,9 @@ public class KeywordController {
 
     @PostMapping("/analyze")
     public Mono<ResponseEntity<KeywordAnalyzeResponse>> analyzeKeyword(
-            @RequestBody @Valid KeywordAnalyzeRequest request
+            @RequestBody @Valid PostCreateRequest request
     ) {
-        return keywordService.analyzeKeyword(request)
+        return keywordService.analyzeKeyword(request.keyword())
                 .map(ResponseEntity::ok)
                 .defaultIfEmpty(ResponseEntity.notFound().build());
     }
