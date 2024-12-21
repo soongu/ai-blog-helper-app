@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 게시글(Post) 엔티티 클래스입니다.
@@ -41,11 +43,19 @@ public class Post {
     // 연관 키워드를 JSON 형식으로 저장하는 컬럼입니다. TEXT 타입으로 길이 제한 없이 긴 문자열을 보관할 수 있습니다.
     private String relatedKeywords;  // 연관 키워드 (JSON)
 
+    // 이력의 버전넘버
+    private Integer version = 1;
+
+    // 연관관계
+    @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PostHistory> histories = new ArrayList<>();
+
     // 생성 시각을 저장할 필드입니다.
     private LocalDateTime createdAt;
 
     // 수정 시각을 저장할 필드입니다.
     private LocalDateTime updatedAt;
+
 
     /**
      * 게시글 상태를 나타내는 enum 타입입니다.
@@ -131,4 +141,16 @@ public class Post {
     public void publish() {
         this.status = PostStatus.PUBLISHED;
     }
+
+    // 연관관계 편의메서드
+    public PostHistory improve(String improvedTitle, String improvedContent, String improvementReason) {
+        this.version += 1;
+        this.title = improvedTitle;
+        this.content = improvedContent;
+
+        var history = new PostHistory(this, improvementReason);
+        this.histories.add(history);
+        return history;
+    }
+
 }
