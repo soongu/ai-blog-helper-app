@@ -29,7 +29,6 @@ public class PostService {
     private final ChatGptService chatGptService; // ChatGPT API 연동 서비스
     private final KeywordService keywordService; // 키워드 분석 서비스
     private final PostRepository postRepository; // Post 엔티티 데이터베이스 액세스
-    private final ObjectMapper objectMapper;     // JSON 변환을 위한 ObjectMapper
 
     /**
      * 사용자가 전달한 키워드 기반으로:
@@ -42,32 +41,27 @@ public class PostService {
      * @return 생성된 포스트 정보(PostResponse)를 Mono로 반환
      */
     public Mono<PostResponse> createPostDraft(PostCreateRequest request) {
-        return keywordService.analyzeKeyword(request.keyword())
-                .timeout(Duration.ofMinutes(2)) // 2분간 타임아웃 설정
-                // 키워드 분석 결과를 바탕으로 포스트 콘텐츠 생성 요청
-                .flatMap(keywordAnalysis -> generatePost(keywordAnalysis)
-                        // ChatGPT 응답을 Post 엔티티로 변환 및 저장
-                        .map(postContent -> createAndSavePost(postContent, keywordAnalysis)))
-                // 저장된 Post 엔티티를 PostResponse DTO로 변환
-                .map(PostResponse::from);
-    }
+        KeywordAnalyzeResponse keywordAnalysis = keywordService.analyzeKeyword(request.keyword())
+                .timeout(Duration.ofMinutes(2))
+                .block();
 
-    /**
-     * 분석된 키워드를 바탕으로 ChatGPT에 포스트 생성 요청을 보내고,
-     * 그 결과를 PostGenerationResponse(타이틀, 내용) 형태로 반환합니다.
-     *
-     * @param keywordAnalysis 키워드 분석 결과 DTO
-     * @return Mono<PostGenerationResponse> 포스트 생성 결과(타이틀, 내용)
-     */
-    private Mono<PostGenerationResponse> generatePost(KeywordAnalyzeResponse keywordAnalysis) {
-        return chatGptService.getCompletion(createPostPrompt(keywordAnalysis))
+        PostGenerationResponse generateContent = chatGptService.getCompletion(createPostPrompt(keywordAnalysis))
                 .map(response -> {
                     log.info(response);
                     // ChatGPT의 JSON 응답을 PostGenerationResponse로 파싱
                     return JsonConverter.fromJson(response, new TypeReference<PostGenerationResponse>() {
                     });
-                });
+                })
+                .block();
+
+        Post savedPost = createAndSavePost(generateContent, keywordAnalysis);
+
+        PostResponse response = PostResponse.from(savedPost);
+
+        return Mono.just(response);
     }
+
+
 
     /**
      * 키워드 분석 결과(relatedKeywords, originalKeyword)를 바탕으로
