@@ -3,6 +3,7 @@ package com.example.bloghelper.service;
 import com.example.bloghelper.dto.KeywordAnalyzeResponse;
 import com.example.bloghelper.dto.PostCreateRequest;
 import com.example.bloghelper.dto.PostResponse;
+import com.example.bloghelper.entity.Member;
 import com.example.bloghelper.entity.Post;
 import com.example.bloghelper.exception.PostGenerationException;
 import com.example.bloghelper.repository.PostRepository;
@@ -40,7 +41,7 @@ public class PostService {
      * @param request 포스트 생성 요청 DTO (키워드 포함)
      * @return 생성된 포스트 정보(PostResponse)를 Mono로 반환
      */
-    public Mono<PostResponse> createPostDraft(PostCreateRequest request) {
+    public Mono<PostResponse> createPostDraft(PostCreateRequest request, Member member) {
         KeywordAnalyzeResponse keywordAnalysis = keywordService.analyzeKeyword(request.keyword())
                 .timeout(Duration.ofMinutes(2))
                 .block();
@@ -54,7 +55,7 @@ public class PostService {
                 })
                 .block();
 
-        Post savedPost = createAndSavePost(generateContent, keywordAnalysis);
+        Post savedPost = createAndSavePost(generateContent, keywordAnalysis, member);
 
         PostResponse response = PostResponse.from(savedPost);
 
@@ -106,13 +107,16 @@ public class PostService {
      * @throws PostGenerationException JSON 직렬화 실패 시 발생
      */
     private Post createAndSavePost(PostGenerationResponse generatedContent,
-                                   KeywordAnalyzeResponse keywordAnalysis) {
+                                   KeywordAnalyzeResponse keywordAnalysis,
+                                   Member member
+    ) {
         // relatedKeywords를 JSON 문자열로 변환 후, 초안 상태의 Post 생성
         var post = Post.createDraft(
                 generatedContent.title(),
                 generatedContent.content(),
                 keywordAnalysis.originalKeyword(),
-                JsonConverter.toJson(keywordAnalysis.relatedKeywords())
+                JsonConverter.toJson(keywordAnalysis.relatedKeywords()),
+                member
         );
         return postRepository.save(post);
     }

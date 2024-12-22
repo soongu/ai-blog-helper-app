@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -49,6 +50,10 @@ public class Post {
     // 연관관계
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PostHistory> histories = new ArrayList<>();
+
+    @Setter
+    @ManyToOne(fetch = FetchType.LAZY)
+    private Member member;
 
     // 생성 시각을 저장할 필드입니다.
     private LocalDateTime createdAt;
@@ -125,12 +130,13 @@ public class Post {
      * @param relatedKeywords 연관 키워드(JSON 형식 문자열)
      * @return 초안 상태의 Post 객체
      */
-    public static Post createDraft(String title, String content, String keyword, String relatedKeywords) {
+    public static Post createDraft(String title, String content, String keyword, String relatedKeywords, Member member) {
         var post = new Post();
         post.title = title;
         post.content = content;
         post.keyword = keyword;
         post.relatedKeywords = relatedKeywords;
+        post.member = member;
         return post;
     }
 

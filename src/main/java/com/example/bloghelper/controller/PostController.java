@@ -1,6 +1,8 @@
 package com.example.bloghelper.controller;
 
 import com.example.bloghelper.dto.*;
+import com.example.bloghelper.entity.Member;
+import com.example.bloghelper.repository.MemberRepository;
 import com.example.bloghelper.service.PostImproveService;
 import com.example.bloghelper.service.PostService;
 import jakarta.validation.Valid;
@@ -17,10 +19,19 @@ import java.util.List;
 public class PostController {
     private final PostService postService;
     private final PostImproveService postImproveService;
+    // 임시로 추가
+    private final MemberRepository memberRepository;
 
     @PostMapping("/drafts")
     public Mono<ResponseEntity<PostResponse>> createDraft(@RequestBody @Valid PostCreateRequest request) {
-        return postService.createPostDraft(request)
+
+        // 임시로 첫번째 회원을 찾아서 사용
+        Member member = memberRepository.findAll()
+                .stream()
+                .findFirst()
+                .orElseThrow();
+
+        return postService.createPostDraft(request, member)
                 .map(ResponseEntity::ok)
                 .defaultIfEmpty(ResponseEntity.notFound().build());
     }
