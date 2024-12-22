@@ -5,13 +5,16 @@ import com.example.bloghelper.dto.PostCreateRequest;
 import com.example.bloghelper.dto.PostResponse;
 import com.example.bloghelper.entity.Member;
 import com.example.bloghelper.entity.Post;
+import com.example.bloghelper.exception.AuthenticationException;
 import com.example.bloghelper.exception.PostGenerationException;
+import com.example.bloghelper.repository.MemberRepository;
 import com.example.bloghelper.repository.PostRepository;
 import com.example.bloghelper.util.JsonConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Mono;
@@ -30,6 +33,7 @@ public class PostService {
     private final ChatGptService chatGptService; // ChatGPT API 연동 서비스
     private final KeywordService keywordService; // 키워드 분석 서비스
     private final PostRepository postRepository; // Post 엔티티 데이터베이스 액세스
+    private final MemberRepository memberRepository;
 
     /**
      * 사용자가 전달한 키워드 기반으로:
@@ -41,7 +45,11 @@ public class PostService {
      * @param request 포스트 생성 요청 DTO (키워드 포함)
      * @return 생성된 포스트 정보(PostResponse)를 Mono로 반환
      */
-    public Mono<PostResponse> createPostDraft(PostCreateRequest request, Member member) {
+    public Mono<PostResponse> createPostDraft(PostCreateRequest request, String email) {
+
+        Member member = memberRepository.findByEmail(email)
+                .orElseThrow();
+
         KeywordAnalyzeResponse keywordAnalysis = keywordService.analyzeKeyword(request.keyword())
                 .timeout(Duration.ofMinutes(2))
                 .block();
