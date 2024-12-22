@@ -37,7 +37,14 @@ public class SecurityConfig {
                                 "/api/members/signup",
                                 "/api/auth/login",
                                 "/h2-console/**",
-                                "/error").permitAll()
+                                "/error",
+                                // Swagger UI v3 (OpenAPI)
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/api-docs/**"
+
+                        ).permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
