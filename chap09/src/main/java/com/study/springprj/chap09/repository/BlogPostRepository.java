@@ -1,0 +1,9 @@
+package com.study.springprj.chap09.repository;
+
+import com.study.springprj.chap08.entity.BlogPost;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface BlogPostRepository extends JpaRepository<BlogPost, Long> {
+
+
+}

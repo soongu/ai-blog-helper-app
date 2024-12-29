@@ -1,0 +1,45 @@
+# ??? application.yml? ??? ???
+
+server:
+  port: 9000
+
+spring:
+  mvc:
+    async:
+      request-timeout: 120s
+  datasource:
+    url: jdbc:h2:mem:blog_gpt
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+    org.hibernate.type: trace
+
+
+chatgpt:
+  api-key: ${OPENAI_API_KEY} # 여기에 key를 넣으세요
+  api-url: https://api.openai.com/v1/chat/completions
+  model: gpt-4-turbo
+  temperature: 0.7
+  max-completion-tokens: 4000
+
+jwt:
+  secret: xYnFzWDZZrUqIgI88Qg2rN6MfWSBOJ03mi72l5jdturHxROYiFLU8eTSzd0bZ3SQ9BORhe2tSaCE6eWy9W0clQ==
+  expiration-minutes: 30
+  issuer: blog-helper
